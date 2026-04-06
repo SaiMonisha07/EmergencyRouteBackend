@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "name": "more",
+    "lat": 17.476925,
+    "lon": 78.556358
+  },
+  {
+    "id": 2,
+    "name": "pista house",
+    "lat": 17.479582,
+    "lon": 78.557462
+  },
+  {
+    "id": 3,
+    "name": "wellness_on_way1",
+    "lat": 17.482091,
+    "lon": 78.552985
+  },
+  {
+    "id": 4,
+    "name": "wellness_on_way2",
+    "lat": 17.483957,
+    "lon": 78.549221
+  },
+  {
+    "id": 5,
+    "name": "Jubilee Hills Signal",
+    "lat": 17.4322,
+    "lon": 78.4071
+  }
+]

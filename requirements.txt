@@ -1,0 +1,5 @@
+flask
+geopy
+numpy
+paho-mqtt
+gunicorn
