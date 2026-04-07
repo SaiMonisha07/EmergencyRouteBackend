@@ -4,112 +4,72 @@ from geopy.distance import geodesic
 import paho.mqtt.client as mqtt
 import threading
 
-# ================= FLASK APP =================
 app = Flask(__name__)
 
-# ================= LOAD RSU DATA =================
+# ===== LOAD RSU DATA =====
 with open("rsu_data.json") as f:
     RSU_DATA = json.load(f)
 
-# Distance threshold (meters)
 RSU_RANGE = 1000
 
-# ================= MQTT (WEBSOCKETS) =================
+# ===== MQTT (WEBSOCKETS) =====
 mqtt_client = mqtt.Client(transport="websockets")
 
 def on_connect(client, userdata, flags, rc):
-    print("✅ MQTT Connected (WebSockets) with code:", rc)
-
-def on_disconnect(client, userdata, rc):
-    print("❌ MQTT Disconnected:", rc)
+    print("✅ MQTT Connected:", rc)
 
 mqtt_client.on_connect = on_connect
-mqtt_client.on_disconnect = on_disconnect
 
-try:
-    # 🔥 IMPORTANT: WebSocket connection (works on Render)
-    mqtt_client.connect("broker.hivemq.com", 8000, 60)
-    mqtt_client.loop_start()
-except Exception as e:
-    print("❌ MQTT Connection Failed:", e)
+mqtt_client.connect("broker.hivemq.com", 8000, 60)
+mqtt_client.loop_start()
 
-# ================= HOME =================
-@app.route("/")
-def home():
-    return "🚑 Emergency Route Backend Running (MQTT WebSockets)"
+# ===== MQTT SEND =====
+def send_mqtt(topic, message):
+    try:
+        print(f"📡 Sending → {topic} : {message}")
+        mqtt_client.publish(topic, message, qos=1)
+    except Exception as e:
+        print("❌ MQTT Error:", e)
 
-# ================= MQTT ASYNC SEND =================
-def publish_mqtt_async(topic, message):
+def send_async(topic, message):
+    threading.Thread(target=send_mqtt, args=(topic, message)).start()
 
-    def task():
-        try:
-            print(f"🚦 Publishing → {topic} : {message}")
-
-            # QoS=1 ensures delivery
-            mqtt_client.publish(topic, message, qos=1)
-
-            print(f"📡 MQTT SENT → {topic}")
-
-        except Exception as e:
-            print("❌ MQTT Publish Error:", e)
-
-    threading.Thread(target=task).start()
-
-# ================= MAIN API =================
+# ===== API =====
 @app.route("/get_rsus", methods=["POST"])
 def get_rsus():
 
-    try:
-        data = request.json
-        route = data.get("route", [])
+    data = request.json
+    route = data.get("route", [])
 
-        print(f"📥 Received route points: {len(route)}")
+    print("📥 Route points:", len(route))
 
-        activated_rsus = []
-        activated_ids = set()
+    activated = []
 
-        for rsu in RSU_DATA:
+    for rsu in RSU_DATA:
 
-            rsu_point = (rsu["lat"], rsu["lon"])
+        rsu_point = (rsu["lat"], rsu["lon"])
+        min_dist = float("inf")
+        closest = None
 
-            closest_point = None
-            min_distance = float("inf")
+        for p in route:
+            d = geodesic(rsu_point, (p["lat"], p["lng"])).meters
+            if d < min_dist:
+                min_dist = d
+                closest = p
 
-            # 🔍 Find closest route point
-            for point in route:
-                route_point = (point["lat"], point["lng"])
-                distance = geodesic(rsu_point, route_point).meters
+        if min_dist <= RSU_RANGE:
+            direction = closest.get("direction", "STRAIGHT")
 
-                if distance < min_distance:
-                    min_distance = distance
-                    closest_point = point
+            topic = f"rsu/{rsu['id']}/control"
 
-            # ✅ Activate RSU if within range
-            if min_distance <= RSU_RANGE and rsu["id"] not in activated_ids:
+            print(f"🚦 RSU {rsu['id']} → {direction}")
 
-                direction = closest_point.get("direction", "STRAIGHT")
+            send_async(topic, direction)
 
-                rsu["direction"] = direction
-                activated_rsus.append(rsu)
-                activated_ids.add(rsu["id"])
+            activated.append(rsu)
 
-                topic = f"rsu/{rsu['id']}/control"
+    return jsonify({"rsus_on_route": activated})
 
-                print(f"🚦 Activating RSU {rsu['id']} → {direction}")
-
-                # 🔥 SEND MQTT (ASYNC)
-                publish_mqtt_async(topic, direction)
-
-        return jsonify({
-            "rsus_on_route": activated_rsus,
-            "total": len(activated_rsus)
-        })
-
-    except Exception as e:
-        print("❌ ERROR:", e)
-        return jsonify({"error": str(e)}), 500
-
-
-# ================= RUN =================
+# ===== RUN =====
 if __name__ == "__main__":
     app.run()
