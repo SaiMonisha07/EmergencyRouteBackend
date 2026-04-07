@@ -12,37 +12,38 @@ with open("rsu_data.json") as f:
 
 RSU_RANGE = 300
 
-# ===== MQTT SETUP =====
+# ===== MQTT CONFIG =====
+MQTT_BROKER = "test.mosquitto.org"
+MQTT_PORT = 1883
+
 mqtt_client = mqtt.Client()
 
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("✅ MQTT Connected to HiveMQ")
+        print("✅ MQTT Connected to Mosquitto")
     else:
         print("❌ MQTT Failed:", rc)
 
 mqtt_client.on_connect = on_connect
 
-# CONNECT ONCE
-mqtt_client.connect("broker.hivemq.com", 1883, 60)
+# CONNECT
+mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
 mqtt_client.loop_start()
 
 
 @app.route("/")
 def home():
-    return "🚑 Emergency Backend Running"
+    return "🚑 Emergency Backend Running (Mosquitto)"
 
 
-# ===== MQTT PUBLISH (FIXED) =====
+# ===== MQTT PUBLISH =====
 def publish_mqtt(topic, message):
     try:
         print("🔥 PUBLISHING NOW...")
 
-        # 🔥 Step 1: Clear old retained message
-        mqtt_client.publish(topic, "", retain=True)
-
-        # 🔥 Step 2: Send fresh message
-        mqtt_client.publish(topic, message, qos=1, retain=False)
+        # 🔥 send multiple times for reliability
+        for i in range(3):
+            mqtt_client.publish(topic, message, qos=0, retain=False)
 
         print(f"📡 Sent → {topic} : {message}")
 
