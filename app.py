@@ -23,7 +23,7 @@ def on_connect(client, userdata, flags, rc):
 
 mqtt_client.on_connect = on_connect
 
-# 🔥 CONNECT ONLY ONCE (NO THREAD)
+# CONNECT ONCE
 mqtt_client.connect("broker.hivemq.com", 1883, 60)
 mqtt_client.loop_start()
 
@@ -33,11 +33,19 @@ def home():
     return "🚑 Emergency Backend Running"
 
 
-# ===== MQTT PUBLISH =====
+# ===== MQTT PUBLISH (FIXED) =====
 def publish_mqtt(topic, message):
     try:
-        result = mqtt_client.publish(topic, message, qos=1, retain=False)
+        print("🔥 PUBLISHING NOW...")
+
+        # 🔥 Step 1: Clear old retained message
+        mqtt_client.publish(topic, "", retain=True)
+
+        # 🔥 Step 2: Send fresh message
+        mqtt_client.publish(topic, message, qos=1, retain=False)
+
         print(f"📡 Sent → {topic} : {message}")
+
     except Exception as e:
         print("❌ MQTT Error:", e)
 
