@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import json
 from geopy.distance import geodesic
 import paho.mqtt.client as mqtt
-import time
+import threading
 
 # ================= FLASK APP =================
 app = Flask(__name__)
@@ -12,9 +12,9 @@ with open("rsu_data.json") as f:
     RSU_DATA = json.load(f)
 
 # Distance threshold (meters)
-RSU_RANGE = 1000   # 🔥 increased for better detection
+RSU_RANGE = 1000   # increased for better detection
 
-# ================= MQTT SETUP (GLOBAL CLIENT) =================
+# ================= MQTT SETUP =================
 mqtt_client = mqtt.Client()
 
 def on_connect(client, userdata, flags, rc):
@@ -33,23 +33,21 @@ except Exception as e:
 def home():
     return "🚑 Emergency Route Backend Running"
 
-# ================= MQTT PUBLISH =================
-def publish_mqtt(topic, message):
-    try:
-        print(f"🚦 Publishing → {topic} : {message}")
+# ================= MQTT ASYNC FUNCTION =================
+def publish_mqtt_async(topic, message):
 
-        result = mqtt_client.publish(topic, message, retain=True)
+    def task():
+        try:
+            print(f"🚦 Publishing → {topic} : {message}")
 
-        # Wait until message is actually sent
-        result.wait_for_publish()
+            mqtt_client.publish(topic, message, retain=True)
 
-        # Small delay (important for cloud stability)
-        time.sleep(0.2)
+            print(f"📡 MQTT SENT → {topic}")
 
-        print(f"📡 MQTT SENT SUCCESS → {topic}")
+        except Exception as e:
+            print("❌ MQTT Error:", e)
 
-    except Exception as e:
-        print("❌ MQTT Publish Error:", e)
+    threading.Thread(target=task).start()
 
 # ================= MAIN API =================
 @app.route("/get_rsus", methods=["POST"])
@@ -93,8 +91,8 @@ def get_rsus():
 
                 print(f"🚦 Activating RSU {rsu['id']} → {direction}")
 
-                # 🔥 SEND MQTT
-                publish_mqtt(topic, direction)
+                # 🔥 SEND MQTT (ASYNC - NO TIMEOUT)
+                publish_mqtt_async(topic, direction)
 
         return jsonify({
             "rsus_on_route": activated_rsus,
