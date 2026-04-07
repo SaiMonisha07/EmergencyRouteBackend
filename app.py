@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import json
 from geopy.distance import geodesic
 import paho.mqtt.client as mqtt
+import time
 
 # ================= FLASK APP =================
 app = Flask(__name__)
@@ -11,83 +12,98 @@ with open("rsu_data.json") as f:
     RSU_DATA = json.load(f)
 
 # Distance threshold (meters)
-RSU_RANGE = 300
+RSU_RANGE = 1000   # 🔥 increased for better detection
 
+# ================= MQTT SETUP (GLOBAL CLIENT) =================
+mqtt_client = mqtt.Client()
 
+def on_connect(client, userdata, flags, rc):
+    print("✅ MQTT Connected with code:", rc)
+
+mqtt_client.on_connect = on_connect
+
+try:
+    mqtt_client.connect("broker.hivemq.com", 1883, 60)
+    mqtt_client.loop_start()
+except Exception as e:
+    print("❌ MQTT Connection Failed:", e)
+
+# ================= HOME =================
 @app.route("/")
 def home():
-    return "Emergency Route Backend Running"
+    return "🚑 Emergency Route Backend Running"
 
-
-# ================= MQTT PUBLISH FUNCTION =================
+# ================= MQTT PUBLISH =================
 def publish_mqtt(topic, message):
     try:
-        client = mqtt.Client()
+        print(f"🚦 Publishing → {topic} : {message}")
 
-        # Connect to broker
-        client.connect("broker.hivemq.com", 1883, 60)
+        result = mqtt_client.publish(topic, message, retain=True)
 
-        # Publish message
-        result = client.publish(topic, message)
-
-        # 🔥 VERY IMPORTANT: wait until message is sent
+        # Wait until message is actually sent
         result.wait_for_publish()
 
-        # Disconnect cleanly
-        client.disconnect()
+        # Small delay (important for cloud stability)
+        time.sleep(0.2)
 
-        print(f"📡 Sent MQTT → {topic} : {message}")
+        print(f"📡 MQTT SENT SUCCESS → {topic}")
 
     except Exception as e:
-        print("❌ MQTT Error:", e)
-
+        print("❌ MQTT Publish Error:", e)
 
 # ================= MAIN API =================
 @app.route("/get_rsus", methods=["POST"])
 def get_rsus():
 
-    data = request.json
-    route = data["route"]
+    try:
+        data = request.json
+        route = data.get("route", [])
 
-    activated_rsus = []
-    activated_ids = set()
+        print(f"📥 Received route points: {len(route)}")
 
-    for rsu in RSU_DATA:
+        activated_rsus = []
+        activated_ids = set()
 
-        rsu_point = (rsu["lat"], rsu["lon"])
+        for rsu in RSU_DATA:
 
-        closest_point = None
-        min_distance = float("inf")
+            rsu_point = (rsu["lat"], rsu["lon"])
 
-        # 🔍 Find closest route point
-        for point in route:
-            route_point = (point["lat"], point["lng"])
-            distance = geodesic(rsu_point, route_point).meters
+            closest_point = None
+            min_distance = float("inf")
 
-            if distance < min_distance:
-                min_distance = distance
-                closest_point = point
+            # 🔍 Find closest route point
+            for point in route:
+                route_point = (point["lat"], point["lng"])
+                distance = geodesic(rsu_point, route_point).meters
 
-        # ✅ Activate RSU if within range
-        if min_distance <= RSU_RANGE and rsu["id"] not in activated_ids:
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_point = point
 
-            direction = closest_point.get("direction", "STRAIGHT")
+            # ✅ Activate RSU if within range
+            if min_distance <= RSU_RANGE and rsu["id"] not in activated_ids:
 
-            rsu["direction"] = direction
-            activated_rsus.append(rsu)
-            activated_ids.add(rsu["id"])
+                direction = closest_point.get("direction", "STRAIGHT")
 
-            topic = f"rsu/{rsu['id']}/control"
+                rsu["direction"] = direction
+                activated_rsus.append(rsu)
+                activated_ids.add(rsu["id"])
 
-            print(f"🚦 Activating RSU {rsu['id']} → {direction}")
+                topic = f"rsu/{rsu['id']}/control"
 
-            # 🔥 Publish via MQTT (fixed)
-            publish_mqtt(topic, direction)
+                print(f"🚦 Activating RSU {rsu['id']} → {direction}")
 
-    return jsonify({
-        "rsus_on_route": activated_rsus,
-        "total": len(activated_rsus)
-    })
+                # 🔥 SEND MQTT
+                publish_mqtt(topic, direction)
+
+        return jsonify({
+            "rsus_on_route": activated_rsus,
+            "total": len(activated_rsus)
+        })
+
+    except Exception as e:
+        print("❌ ERROR:", e)
+        return jsonify({"error": str(e)}), 500
 
 
 # ================= RUN SERVER =================
