@@ -21,31 +21,17 @@ def on_connect(client, userdata, flags, rc):
         print("❌ MQTT Failed:", rc)
 
 
-def on_disconnect(client, userdata, rc):
-    global mqtt_connected
-    mqtt_connected = False
-    print("⚠️ MQTT Disconnected")
-
-
 mqtt_client.on_connect = on_connect
-mqtt_client.on_disconnect = on_disconnect
 
+# 🔥 CONNECT + WAIT
+mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+mqtt_client.loop_start()
 
-def connect_mqtt():
-    global mqtt_connected
+# 🔥 WAIT UNTIL CONNECTED
+while not mqtt_connected:
+    print("⏳ Waiting for MQTT connection...")
+    time.sleep(0.5)
 
-    if not mqtt_connected:
-        try:
-            print("🔄 Connecting to MQTT...")
-            mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-            mqtt_client.loop_start()
-            time.sleep(1)   # 🔥 important
-        except Exception as e:
-            print("❌ MQTT Connect Error:", e)
-
-
-# Initial connect
-connect_mqtt()
 
 # ================= FLASK APP =================
 app = Flask(__name__)
@@ -65,14 +51,11 @@ def home():
 # ================= MQTT PUBLISH =================
 def publish_mqtt(topic, message):
     try:
-        connect_mqtt()  # 🔥 ensure connection
+        print(f"📡 Sending → {topic} : {message}")
 
-        print(f"🔥 Sending → {topic} : {message}")
-
-        # 🔥 send multiple times (important for public broker)
-        for i in range(3):
-            mqtt_client.publish(topic, message)
-            time.sleep(0.1)
+        # 🔥 ensure delivery
+        result = mqtt_client.publish(topic, message)
+        result.wait_for_publish()
 
     except Exception as e:
         print("❌ MQTT Error:", e)
