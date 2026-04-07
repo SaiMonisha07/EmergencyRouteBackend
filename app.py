@@ -10,8 +10,18 @@ app = Flask(__name__)
 with open("rsu_data.json") as f:
     RSU_DATA = json.load(f)
 
-# Distance threshold (meters)
-RSU_RANGE = 300
+RSU_RANGE = 300  # meters
+
+# ================= MQTT GLOBAL CLIENT (FIXED) =================
+mqtt_client = mqtt.Client()
+
+def on_connect(client, userdata, flags, rc):
+    print("✅ MQTT Connected with code:", rc)
+
+mqtt_client.on_connect = on_connect
+
+mqtt_client.connect("broker.hivemq.com", 1883, 60)
+mqtt_client.loop_start()   # 🔥 KEEP CONNECTION ALIVE
 
 
 @app.route("/")
@@ -19,22 +29,11 @@ def home():
     return "Emergency Route Backend Running"
 
 
-# ================= MQTT PUBLISH FUNCTION =================
+# ================= MQTT PUBLISH =================
 def publish_mqtt(topic, message):
     try:
-        client = mqtt.Client()
-
-        # Connect to broker
-        client.connect("broker.hivemq.com", 1883, 60)
-
-        # Publish message
-        result = client.publish(topic, message)
-
-        # Ensure message is sent
+        result = mqtt_client.publish(topic, message, qos=1, retain=True)
         result.wait_for_publish()
-
-        # Disconnect cleanly
-        client.disconnect()
 
         print(f"📡 Sent MQTT → {topic} : {message}")
 
@@ -68,7 +67,7 @@ def get_rsus():
                 min_distance = distance
                 closest_point = point
 
-        # ✅ Activate RSU if within range
+        # ✅ Activate RSU
         if min_distance <= RSU_RANGE and rsu["id"] not in activated_ids:
 
             direction = closest_point.get("direction", "STRAIGHT")
@@ -81,7 +80,6 @@ def get_rsus():
 
             print(f"🚦 Activating RSU {rsu['id']} → {direction}")
 
-            # Publish MQTT
             publish_mqtt(topic, direction)
 
     return jsonify({
@@ -90,6 +88,6 @@ def get_rsus():
     })
 
 
-# ================= RUN SERVER =================
+# ================= RUN =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
