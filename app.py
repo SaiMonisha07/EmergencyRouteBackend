@@ -3,6 +3,7 @@ import json
 from geopy.distance import geodesic
 import paho.mqtt.client as mqtt
 import os
+import time
 
 app = Flask(__name__)
 
@@ -17,18 +18,44 @@ MQTT_BROKER = "test.mosquitto.org"
 MQTT_PORT = 1883
 
 mqtt_client = mqtt.Client()
+mqtt_connected = False
 
+
+# ===== MQTT CALLBACKS =====
 def on_connect(client, userdata, flags, rc):
+    global mqtt_connected
     if rc == 0:
+        mqtt_connected = True
         print("✅ MQTT Connected to Mosquitto")
     else:
         print("❌ MQTT Failed:", rc)
 
-mqtt_client.on_connect = on_connect
 
-# CONNECT
-mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-mqtt_client.loop_start()
+def on_disconnect(client, userdata, rc):
+    global mqtt_connected
+    mqtt_connected = False
+    print("⚠️ MQTT Disconnected")
+
+
+mqtt_client.on_connect = on_connect
+mqtt_client.on_disconnect = on_disconnect
+
+
+# ===== CONNECT FUNCTION =====
+def connect_mqtt():
+    global mqtt_connected
+    if not mqtt_connected:
+        try:
+            print("🔄 Connecting to MQTT...")
+            mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+            mqtt_client.loop_start()
+            time.sleep(1)  # 🔥 allow connection setup
+        except Exception as e:
+            print("❌ MQTT Connect Error:", e)
+
+
+# Initial connect
+connect_mqtt()
 
 
 @app.route("/")
@@ -36,14 +63,19 @@ def home():
     return "🚑 Emergency Backend Running (Mosquitto)"
 
 
-# ===== MQTT PUBLISH =====
+# ===== MQTT PUBLISH (FINAL FIX) =====
 def publish_mqtt(topic, message):
     try:
+        # 🔥 Ensure connection
+        connect_mqtt()
+
         print("🔥 PUBLISHING NOW...")
 
-        # 🔥 send multiple times for reliability
+        # 🔥 Send multiple times (public broker reliability)
         for i in range(3):
-            mqtt_client.publish(topic, message, qos=0, retain=False)
+            result = mqtt_client.publish(topic, message, qos=0, retain=False)
+            result.wait_for_publish()   # 🔥 ensure delivery
+            time.sleep(0.1)
 
         print(f"📡 Sent → {topic} : {message}")
 
