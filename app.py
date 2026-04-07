@@ -3,25 +3,22 @@ import json
 from geopy.distance import geodesic
 import paho.mqtt.client as mqtt
 
-# ================= FLASK APP =================
 app = Flask(__name__)
 
-# ================= LOAD RSU DATA =================
 with open("rsu_data.json") as f:
     RSU_DATA = json.load(f)
 
-RSU_RANGE = 300  # meters
+RSU_RANGE = 300
 
-# ================= MQTT GLOBAL CLIENT (FIXED) =================
+# ===== MQTT SETUP (GLOBAL CLIENT) =====
 mqtt_client = mqtt.Client()
 
 def on_connect(client, userdata, flags, rc):
-    print("✅ MQTT Connected with code:", rc)
+    print("✅ MQTT Connected:", rc)
 
 mqtt_client.on_connect = on_connect
-
 mqtt_client.connect("broker.hivemq.com", 1883, 60)
-mqtt_client.loop_start()   # 🔥 KEEP CONNECTION ALIVE
+mqtt_client.loop_start()
 
 
 @app.route("/")
@@ -29,19 +26,16 @@ def home():
     return "Emergency Route Backend Running"
 
 
-# ================= MQTT PUBLISH =================
+# ===== FIXED MQTT FUNCTION =====
 def publish_mqtt(topic, message):
     try:
-        result = mqtt_client.publish(topic, message, qos=1, retain=True)
-        result.wait_for_publish()
-
-        print(f"📡 Sent MQTT → {topic} : {message}")
+        mqtt_client.publish(topic, message, qos=1, retain=True)
+        print(f"📡 Sent → {topic} : {message}")
 
     except Exception as e:
         print("❌ MQTT Error:", e)
 
 
-# ================= MAIN API =================
 @app.route("/get_rsus", methods=["POST"])
 def get_rsus():
 
@@ -58,7 +52,6 @@ def get_rsus():
         closest_point = None
         min_distance = float("inf")
 
-        # 🔍 Find closest route point
         for point in route:
             route_point = (point["lat"], point["lng"])
             distance = geodesic(rsu_point, route_point).meters
@@ -67,7 +60,6 @@ def get_rsus():
                 min_distance = distance
                 closest_point = point
 
-        # ✅ Activate RSU
         if min_distance <= RSU_RANGE and rsu["id"] not in activated_ids:
 
             direction = closest_point.get("direction", "STRAIGHT")
@@ -88,6 +80,5 @@ def get_rsus():
     })
 
 
-# ================= RUN =================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
