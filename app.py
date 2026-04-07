@@ -11,84 +11,104 @@ app = Flask(__name__)
 with open("rsu_data.json") as f:
     RSU_DATA = json.load(f)
 
+# Distance threshold (meters)
 RSU_RANGE = 1000
 
-# ================= MQTT =================
-mqtt_client = mqtt.Client()
+# ================= MQTT (WEBSOCKETS) =================
+mqtt_client = mqtt.Client(transport="websockets")
 
 def on_connect(client, userdata, flags, rc):
-    print("✅ MQTT Connected:", rc)
+    print("✅ MQTT Connected (WebSockets) with code:", rc)
+
+def on_disconnect(client, userdata, rc):
+    print("❌ MQTT Disconnected:", rc)
 
 mqtt_client.on_connect = on_connect
-mqtt_client.connect("broker.hivemq.com", 1883, 60)
-mqtt_client.loop_start()
+mqtt_client.on_disconnect = on_disconnect
+
+try:
+    # 🔥 IMPORTANT: WebSocket connection (works on Render)
+    mqtt_client.connect("broker.hivemq.com", 8000, 60)
+    mqtt_client.loop_start()
+except Exception as e:
+    print("❌ MQTT Connection Failed:", e)
 
 # ================= HOME =================
 @app.route("/")
 def home():
-    return "Backend Running"
+    return "🚑 Emergency Route Backend Running (MQTT WebSockets)"
 
-# ================= MQTT SEND =================
+# ================= MQTT ASYNC SEND =================
 def publish_mqtt_async(topic, message):
 
     def task():
         try:
             print(f"🚦 Publishing → {topic} : {message}")
 
+            # QoS=1 ensures delivery
             mqtt_client.publish(topic, message, qos=1)
 
             print(f"📡 MQTT SENT → {topic}")
 
         except Exception as e:
-            print("❌ MQTT Error:", e)
+            print("❌ MQTT Publish Error:", e)
 
     threading.Thread(target=task).start()
 
-# ================= API =================
+# ================= MAIN API =================
 @app.route("/get_rsus", methods=["POST"])
 def get_rsus():
 
-    data = request.json
-    route = data.get("route", [])
+    try:
+        data = request.json
+        route = data.get("route", [])
 
-    print(f"📥 Received route points: {len(route)}")
+        print(f"📥 Received route points: {len(route)}")
 
-    activated_rsus = []
-    activated_ids = set()
+        activated_rsus = []
+        activated_ids = set()
 
-    for rsu in RSU_DATA:
+        for rsu in RSU_DATA:
 
-        rsu_point = (rsu["lat"], rsu["lon"])
+            rsu_point = (rsu["lat"], rsu["lon"])
 
-        closest_point = None
-        min_distance = float("inf")
+            closest_point = None
+            min_distance = float("inf")
 
-        for point in route:
-            route_point = (point["lat"], point["lng"])
-            distance = geodesic(rsu_point, route_point).meters
+            # 🔍 Find closest route point
+            for point in route:
+                route_point = (point["lat"], point["lng"])
+                distance = geodesic(rsu_point, route_point).meters
 
-            if distance < min_distance:
-                min_distance = distance
-                closest_point = point
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_point = point
 
-        if min_distance <= RSU_RANGE and rsu["id"] not in activated_ids:
+            # ✅ Activate RSU if within range
+            if min_distance <= RSU_RANGE and rsu["id"] not in activated_ids:
 
-            direction = closest_point.get("direction", "STRAIGHT")
+                direction = closest_point.get("direction", "STRAIGHT")
 
-            rsu["direction"] = direction
-            activated_rsus.append(rsu)
-            activated_ids.add(rsu["id"])
+                rsu["direction"] = direction
+                activated_rsus.append(rsu)
+                activated_ids.add(rsu["id"])
 
-            topic = f"rsu/{rsu['id']}/control"
+                topic = f"rsu/{rsu['id']}/control"
 
-            print(f"🚦 Activating RSU {rsu['id']} → {direction}")
+                print(f"🚦 Activating RSU {rsu['id']} → {direction}")
 
-            publish_mqtt_async(topic, direction)
+                # 🔥 SEND MQTT (ASYNC)
+                publish_mqtt_async(topic, direction)
 
-    return jsonify({
-        "rsus_on_route": activated_rsus,
-        "total": len(activated_rsus)
-    })
+        return jsonify({
+            "rsus_on_route": activated_rsus,
+            "total": len(activated_rsus)
+        })
+
+    except Exception as e:
+        print("❌ ERROR:", e)
+        return jsonify({"error": str(e)}), 500
+
 
 # ================= RUN =================
 if __name__ == "__main__":
