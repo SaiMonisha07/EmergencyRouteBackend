@@ -3,11 +3,6 @@ import json
 from geopy.distance import geodesic
 import paho.mqtt.client as mqtt
 
-# ================= MQTT SETUP =================
-mqtt_client = mqtt.Client()
-mqtt_client.connect("broker.hivemq.com", 1883, 60)
-mqtt_client.loop_start()
-
 # ================= FLASK APP =================
 app = Flask(__name__)
 
@@ -22,6 +17,18 @@ RSU_RANGE = 300
 @app.route("/")
 def home():
     return "Emergency Route Backend Running"
+
+
+# ================= MQTT PUBLISH FUNCTION =================
+def publish_mqtt(topic, message):
+    try:
+        client = mqtt.Client()
+        client.connect("broker.hivemq.com", 1883, 60)
+        client.publish(topic, message)
+        client.disconnect()
+        print(f"📡 Sent MQTT → {topic} : {message}")
+    except Exception as e:
+        print("MQTT Error:", e)
 
 
 # ================= MAIN API =================
@@ -63,7 +70,8 @@ def get_rsus():
 
             print(f"🚦 Activating RSU {rsu['id']} → {direction}")
 
-            mqtt_client.publish(topic, direction)
+            # 🔥 FIXED MQTT CALL
+            publish_mqtt(topic, direction)
 
     return jsonify({
         "rsus_on_route": activated_rsus,
