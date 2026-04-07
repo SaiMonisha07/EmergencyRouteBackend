@@ -23,12 +23,23 @@ def home():
 def publish_mqtt(topic, message):
     try:
         client = mqtt.Client()
+
+        # Connect to broker
         client.connect("broker.hivemq.com", 1883, 60)
-        client.publish(topic, message)
+
+        # Publish message
+        result = client.publish(topic, message)
+
+        # 🔥 VERY IMPORTANT: wait until message is sent
+        result.wait_for_publish()
+
+        # Disconnect cleanly
         client.disconnect()
+
         print(f"📡 Sent MQTT → {topic} : {message}")
+
     except Exception as e:
-        print("MQTT Error:", e)
+        print("❌ MQTT Error:", e)
 
 
 # ================= MAIN API =================
@@ -70,7 +81,7 @@ def get_rsus():
 
             print(f"🚦 Activating RSU {rsu['id']} → {direction}")
 
-            # 🔥 FIXED MQTT CALL
+            # 🔥 Publish via MQTT (fixed)
             publish_mqtt(topic, direction)
 
     return jsonify({
